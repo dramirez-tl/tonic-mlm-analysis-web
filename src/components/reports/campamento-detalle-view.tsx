@@ -8,10 +8,14 @@ import {
   getCampamentoEquipo,
   getCampamentoRangos,
   CampamentoResumen,
+  CampamentoPatrocinios,
+  CampamentoEquipo,
+  CampamentoRangos,
   PatrocinioDetalle,
   CompraDetalle,
   RangoHistorial,
 } from '@/lib/api';
+import { getCachedData, setCachedData } from '@/lib/supabase';
 import {
   Table,
   TableBody,
@@ -68,40 +72,108 @@ interface CampamentoDetalleViewProps {
   liderId: number;
 }
 
-// Tiempo de cache: 5 minutos
-const STALE_TIME = 5 * 60 * 1000;
+// Cache keys
+const CACHE_KEY_RESUMEN = (id: number) => `lider_resumen_${id}`;
+const CACHE_KEY_PATROCINIOS = (id: number) => `lider_patrocinios_${id}`;
+const CACHE_KEY_EQUIPO = (id: number) => `lider_equipo_${id}`;
+const CACHE_KEY_RANGOS = (id: number) => `lider_rangos_${id}`;
+
+// Funciones para obtener datos con caché de Supabase
+async function fetchResumenWithCache(liderId: number): Promise<CampamentoResumen> {
+  const cacheKey = CACHE_KEY_RESUMEN(liderId);
+
+  // Intentar obtener del caché
+  const cached = await getCachedData<CampamentoResumen>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] Resumen de lider ${liderId} obtenido del caché`);
+    return cached;
+  }
+
+  // Si no hay caché, obtener de la API
+  console.log(`[API] Obteniendo resumen de lider ${liderId}...`);
+  const data = await getCampamentoResumen(liderId);
+
+  // Guardar en caché
+  await setCachedData(cacheKey, data);
+
+  return data;
+}
+
+async function fetchPatrociniosWithCache(liderId: number): Promise<CampamentoPatrocinios> {
+  const cacheKey = CACHE_KEY_PATROCINIOS(liderId);
+
+  const cached = await getCachedData<CampamentoPatrocinios>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] Patrocinios de lider ${liderId} obtenidos del caché`);
+    return cached;
+  }
+
+  console.log(`[API] Obteniendo patrocinios de lider ${liderId}...`);
+  const data = await getCampamentoPatrocinios(liderId);
+  await setCachedData(cacheKey, data);
+
+  return data;
+}
+
+async function fetchEquipoWithCache(liderId: number): Promise<CampamentoEquipo> {
+  const cacheKey = CACHE_KEY_EQUIPO(liderId);
+
+  const cached = await getCachedData<CampamentoEquipo>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] Equipo de lider ${liderId} obtenido del caché`);
+    return cached;
+  }
+
+  console.log(`[API] Obteniendo equipo de lider ${liderId}...`);
+  const data = await getCampamentoEquipo(liderId);
+  await setCachedData(cacheKey, data);
+
+  return data;
+}
+
+async function fetchRangosWithCache(liderId: number): Promise<CampamentoRangos> {
+  const cacheKey = CACHE_KEY_RANGOS(liderId);
+
+  const cached = await getCachedData<CampamentoRangos>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] Rangos de lider ${liderId} obtenidos del caché`);
+    return cached;
+  }
+
+  console.log(`[API] Obteniendo rangos de lider ${liderId}...`);
+  const data = await getCampamentoRangos(liderId);
+  await setCachedData(cacheKey, data);
+
+  return data;
+}
 
 export function CampamentoDetalleView({ liderId }: CampamentoDetalleViewProps) {
   const { data: resumen, isLoading: loadingResumen } = useQuery({
     queryKey: ['campamentoResumen', liderId],
-    queryFn: () => getCampamentoResumen(liderId),
+    queryFn: () => fetchResumenWithCache(liderId),
     enabled: !!liderId,
-    staleTime: STALE_TIME,
-    gcTime: STALE_TIME * 2,
+    staleTime: Infinity, // Usamos caché persistente de Supabase
   });
 
   const { data: patrocinios, isLoading: loadingPatrocinios } = useQuery({
     queryKey: ['campamentoPatrocinios', liderId],
-    queryFn: () => getCampamentoPatrocinios(liderId),
+    queryFn: () => fetchPatrociniosWithCache(liderId),
     enabled: !!liderId,
-    staleTime: STALE_TIME,
-    gcTime: STALE_TIME * 2,
+    staleTime: Infinity,
   });
 
   const { data: equipo, isLoading: loadingEquipo } = useQuery({
     queryKey: ['campamentoEquipo', liderId],
-    queryFn: () => getCampamentoEquipo(liderId),
+    queryFn: () => fetchEquipoWithCache(liderId),
     enabled: !!liderId,
-    staleTime: STALE_TIME,
-    gcTime: STALE_TIME * 2,
+    staleTime: Infinity,
   });
 
   const { data: rangos, isLoading: loadingRangos } = useQuery({
     queryKey: ['campamentoRangos', liderId],
-    queryFn: () => getCampamentoRangos(liderId),
+    queryFn: () => fetchRangosWithCache(liderId),
     enabled: !!liderId,
-    staleTime: STALE_TIME,
-    gcTime: STALE_TIME * 2,
+    staleTime: Infinity,
   });
 
   if (loadingResumen) {

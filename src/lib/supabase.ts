@@ -1,9 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+console.log('[Supabase] URL:', supabaseUrl);
+console.log('[Supabase] Key length:', supabaseAnonKey.length);
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  db: {
+    schema: 'public',
+  },
+  global: {
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    },
+  },
+});
 
 // Tipos para el caché
 export interface CampamentoCache {
@@ -28,54 +42,91 @@ export interface UserRoleRecord {
 
 // Funciones de caché
 export async function getCachedData<T>(cacheKey: string): Promise<T | null> {
-  const { data, error } = await supabase
-    .from('campamento_cache')
-    .select('data')
-    .eq('cache_key', cacheKey)
-    .single();
+  try {
+    console.log(`[Supabase Cache] Buscando caché para: ${cacheKey}`);
+    // Usar .maybeSingle() en lugar de .single() para evitar error cuando no hay datos
+    const { data, error, status } = await supabase
+      .from('campamento_cache')
+      .select('data')
+      .eq('cache_key', cacheKey)
+      .maybeSingle();
 
-  if (error || !data) {
+    if (error) {
+      console.log(`[Supabase Cache] Error (${status}):`, error.message, error.code);
+      return null;
+    }
+
+    if (!data) {
+      console.log(`[Supabase Cache] No hay caché para: ${cacheKey} (primera vez)`);
+      return null;
+    }
+
+    console.log(`[Supabase Cache] Datos encontrados para: ${cacheKey}`);
+    return data.data as T;
+  } catch (err) {
+    console.error('[Supabase Cache] Error inesperado en getCachedData:', err);
     return null;
   }
-
-  return data.data as T;
 }
 
 export async function setCachedData<T>(cacheKey: string, cacheData: T): Promise<boolean> {
-  const { error } = await supabase
-    .from('campamento_cache')
-    .upsert({
-      cache_key: cacheKey,
-      data: cacheData,
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'cache_key',
-    });
+  try {
+    console.log(`[Supabase Cache] Guardando caché para: ${cacheKey}`);
+    const { error, status } = await supabase
+      .from('campamento_cache')
+      .upsert({
+        cache_key: cacheKey,
+        data: cacheData,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'cache_key',
+      });
 
-  return !error;
+    if (error) {
+      console.error(`[Supabase Cache] Error al guardar (${status}):`, error.message, error.code);
+      return false;
+    }
+
+    console.log(`[Supabase Cache] Datos guardados exitosamente para: ${cacheKey}`);
+    return true;
+  } catch (err) {
+    console.error('[Supabase Cache] Error inesperado en setCachedData:', err);
+    return false;
+  }
 }
 
 export async function deleteCachedData(cacheKey: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('campamento_cache')
-    .delete()
-    .eq('cache_key', cacheKey);
+  try {
+    const { error } = await supabase
+      .from('campamento_cache')
+      .delete()
+      .eq('cache_key', cacheKey);
 
-  return !error;
+    return !error;
+  } catch (err) {
+    console.error('[Supabase Cache] Error en deleteCachedData:', err);
+    return false;
+  }
 }
 
 export async function getCacheInfo(cacheKey: string): Promise<{ exists: boolean; updatedAt: string | null }> {
-  const { data, error } = await supabase
-    .from('campamento_cache')
-    .select('updated_at')
-    .eq('cache_key', cacheKey)
-    .single();
+  try {
+    // Usar .maybeSingle() para evitar error 406 cuando no hay datos
+    const { data, error } = await supabase
+      .from('campamento_cache')
+      .select('updated_at')
+      .eq('cache_key', cacheKey)
+      .maybeSingle();
 
-  if (error || !data) {
+    if (error || !data) {
+      return { exists: false, updatedAt: null };
+    }
+
+    return { exists: true, updatedAt: data.updated_at };
+  } catch (err) {
+    console.error('[Supabase Cache] Error en getCacheInfo:', err);
     return { exists: false, updatedAt: null };
   }
-
-  return { exists: true, updatedAt: data.updated_at };
 }
 
 // Funciones de roles de usuario

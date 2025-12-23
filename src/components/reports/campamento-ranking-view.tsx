@@ -58,6 +58,9 @@ function formatNumber(num: number): string {
 const CACHE_KEY_MEXICO = 'ranking_mexico';
 const CACHE_KEY_USA = 'ranking_usa';
 
+// Flag para deshabilitar caché temporalmente
+const DISABLE_SUPABASE_CACHE = false;
+
 // Función para obtener datos con caché
 async function fetchRankingWithCache(
   country: 'mexico' | 'usa',
@@ -66,12 +69,22 @@ async function fetchRankingWithCache(
   const cacheKey = country === 'mexico' ? CACHE_KEY_MEXICO : CACHE_KEY_USA;
   const fetchFn = country === 'mexico' ? getCampamentoRankingMexico : getCampamentoRankingUSA;
 
+  // Si el caché está deshabilitado, ir directo a la API
+  if (DISABLE_SUPABASE_CACHE) {
+    console.log(`[API] Obteniendo datos de ${country} desde la API (caché deshabilitado)...`);
+    return await fetchFn();
+  }
+
   // Si no es forzar refresh, intentar obtener del caché primero
   if (!forceRefresh) {
-    const cachedData = await getCachedData<CampamentoRanking>(cacheKey);
-    if (cachedData) {
-      console.log(`[Cache] Datos de ${country} obtenidos del caché`);
-      return cachedData;
+    try {
+      const cachedData = await getCachedData<CampamentoRanking>(cacheKey);
+      if (cachedData) {
+        console.log(`[Cache] Datos de ${country} obtenidos del caché`);
+        return cachedData;
+      }
+    } catch (error) {
+      console.warn(`[Cache] Error al obtener caché de ${country}:`, error);
     }
   }
 
@@ -80,9 +93,13 @@ async function fetchRankingWithCache(
   const freshData = await fetchFn();
 
   // Guardar en caché
-  const saved = await setCachedData(cacheKey, freshData);
-  if (saved) {
-    console.log(`[Cache] Datos de ${country} guardados en caché`);
+  try {
+    const saved = await setCachedData(cacheKey, freshData);
+    if (saved) {
+      console.log(`[Cache] Datos de ${country} guardados en caché`);
+    }
+  } catch (error) {
+    console.warn(`[Cache] Error al guardar caché de ${country}:`, error);
   }
 
   return freshData;
@@ -111,17 +128,23 @@ export function CampamentoRankingView() {
     enabled: !loadingMexico,
   });
 
-  // Cargar info del caché al montar
+  // Cargar info del caché al montar (deshabilitado temporalmente)
   React.useEffect(() => {
-    async function loadCacheInfo() {
-      const infoMX = await getCacheInfo(CACHE_KEY_MEXICO);
-      const infoUSA = await getCacheInfo(CACHE_KEY_USA);
+    if (DISABLE_SUPABASE_CACHE) return;
 
-      if (infoMX.exists && infoMX.updatedAt) {
-        setCacheInfoMexico(new Date(infoMX.updatedAt).toLocaleString('es-MX'));
-      }
-      if (infoUSA.exists && infoUSA.updatedAt) {
-        setCacheInfoUSA(new Date(infoUSA.updatedAt).toLocaleString('es-MX'));
+    async function loadCacheInfo() {
+      try {
+        const infoMX = await getCacheInfo(CACHE_KEY_MEXICO);
+        const infoUSA = await getCacheInfo(CACHE_KEY_USA);
+
+        if (infoMX.exists && infoMX.updatedAt) {
+          setCacheInfoMexico(new Date(infoMX.updatedAt).toLocaleString('es-MX'));
+        }
+        if (infoUSA.exists && infoUSA.updatedAt) {
+          setCacheInfoUSA(new Date(infoUSA.updatedAt).toLocaleString('es-MX'));
+        }
+      } catch (error) {
+        console.warn('[Cache] Error al cargar info del caché:', error);
       }
     }
     loadCacheInfo();
